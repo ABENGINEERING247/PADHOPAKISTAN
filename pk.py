@@ -2,10 +2,13 @@ import os
 import sqlite3
 import hashlib
 import json
+import secrets
+import string
 from datetime import datetime, date
 from pathlib import Path
 
 import streamlit as st
+
 
 # ============================================================
 # OPTIONAL PACKAGES
@@ -46,7 +49,7 @@ st.set_page_config(
 
 
 # ============================================================
-# APPLICATION PATHS
+# PATHS
 # ============================================================
 
 BASE_DIR = Path(__file__).parent
@@ -84,7 +87,6 @@ AGENTS = [
     ("18", "AI Tutor Agent", "AI"),
     ("19", "AI Lesson Planner Agent", "AI"),
     ("20", "Curriculum Agent", "Academic"),
-
     ("21", "Student Performance Agent", "Student"),
     ("22", "Personalized Learning Agent", "Student"),
     ("23", "Study Planner Agent", "Student"),
@@ -95,7 +97,6 @@ AGENTS = [
     ("28", "Career Guidance Agent", "AI"),
     ("29", "Coding Practice Agent", "AI"),
     ("30", "Project/FYP Agent", "Academic"),
-
     ("31", "Teacher Assistant Agent", "Teacher"),
     ("32", "AI Content Generator Agent", "AI"),
     ("33", "Rubric Agent", "Teacher"),
@@ -106,7 +107,6 @@ AGENTS = [
     ("38", "PDF Generator Agent", "Documents"),
     ("39", "Word Document Agent", "Documents"),
     ("40", "Excel Agent", "Documents"),
-
     ("41", "Announcement Agent", "Communication"),
     ("42", "Email Agent", "Communication"),
     ("43", "Discussion Agent", "Communication"),
@@ -119,11 +119,6 @@ AGENTS = [
     ("50", "System Administration Agent", "System"),
 ]
 
-
-# ============================================================
-# AGENT DESCRIPTIONS
-# ============================================================
-
 AGENT_DESCRIPTIONS = {
     name: f"{name} handles {category.lower()} related LMS activities."
     for _, name, category in AGENTS
@@ -134,7 +129,7 @@ AGENT_DESCRIPTIONS = {
 # SESSION STATE
 # ============================================================
 
-defaults = {
+DEFAULTS = {
     "logged_in": False,
     "username": "",
     "role": "",
@@ -144,7 +139,7 @@ defaults = {
     "chat_messages": [],
 }
 
-for key, value in defaults.items():
+for key, value in DEFAULTS.items():
     if key not in st.session_state:
         st.session_state[key] = value
 
@@ -182,6 +177,28 @@ def execute(query, params=(), fetch=False, many=False):
         conn.close()
 
 
+# ============================================================
+# PASSWORD SECURITY
+# ============================================================
+
+def hash_password(password):
+    return hashlib.sha256(
+        password.encode("utf-8")
+    ).hexdigest()
+
+
+def generate_password(length=10):
+    characters = string.ascii_letters + string.digits
+    return "".join(
+        secrets.choice(characters)
+        for _ in range(length)
+    )
+
+
+# ============================================================
+# DATABASE INITIALIZATION
+# ============================================================
+
 def init_db():
 
     conn = get_db()
@@ -198,7 +215,9 @@ def init_db():
             email TEXT,
             department TEXT,
             semester TEXT,
-            created_at TEXT
+            status TEXT DEFAULT 'Active',
+            created_at TEXT,
+            last_login TEXT
         );
 
         CREATE TABLE IF NOT EXISTS courses (
@@ -314,6 +333,21 @@ def init_db():
         """
     )
 
+    # Migration for older database versions
+    try:
+        cur.execute(
+            "ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'Active'"
+        )
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cur.execute(
+            "ALTER TABLE users ADD COLUMN last_login TEXT"
+        )
+    except sqlite3.OperationalError:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -323,9 +357,9 @@ def init_db():
     create_demo_quizzes()
 
 
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
-
+# ============================================================
+# DEMO USERS
+# ============================================================
 
 def create_demo_users():
 
@@ -360,6 +394,7 @@ def create_demo_users():
     ]
 
     for user in users:
+
         exists = execute(
             "SELECT id FROM users WHERE username=?",
             (user[0],),
@@ -367,11 +402,22 @@ def create_demo_users():
         )
 
         if not exists:
+
             execute(
                 """
                 INSERT INTO users
-                (username,password,name,role,email,department,semester,created_at)
-                VALUES (?,?,?,?,?,?,?,?)
+                (
+                    username,
+                    password,
+                    name,
+                    role,
+                    email,
+                    department,
+                    semester,
+                    status,
+                    created_at
+                )
+                VALUES (?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     user[0],
@@ -381,10 +427,15 @@ def create_demo_users():
                     user[4],
                     user[5],
                     user[6],
+                    "Active",
                     datetime.now().isoformat(),
                 ),
             )
 
+
+# ============================================================
+# DEMO COURSES
+# ============================================================
 
 def create_demo_courses():
 
@@ -397,18 +448,51 @@ def create_demo_courses():
         return
 
     courses = [
-        ("AI101", "Artificial Intelligence", "Computer Science", 3),
-        ("PY101", "Python Programming", "Computer Science", 3),
-        ("DS101", "Data Science", "Computer Science", 3),
-        ("ML101", "Machine Learning", "Computer Science", 3),
-        ("WEB101", "Web Development", "Computer Science", 3),
+        (
+            "AI101",
+            "Artificial Intelligence",
+            "Computer Science",
+            3,
+        ),
+        (
+            "PY101",
+            "Python Programming",
+            "Computer Science",
+            3,
+        ),
+        (
+            "DS101",
+            "Data Science",
+            "Computer Science",
+            3,
+        ),
+        (
+            "ML101",
+            "Machine Learning",
+            "Computer Science",
+            3,
+        ),
+        (
+            "WEB101",
+            "Web Development",
+            "Computer Science",
+            3,
+        ),
     ]
 
     for code, name, dept, credit in courses:
+
         execute(
             """
             INSERT INTO courses
-            (code,name,department,credit_hours,teacher,description)
+            (
+                code,
+                name,
+                department,
+                credit_hours,
+                teacher,
+                description
+            )
             VALUES (?,?,?,?,?,?)
             """,
             (
@@ -421,6 +505,10 @@ def create_demo_courses():
             ),
         )
 
+
+# ============================================================
+# DEMO ASSIGNMENTS
+# ============================================================
 
 def create_demo_assignments():
 
@@ -442,7 +530,15 @@ def create_demo_assignments():
         execute(
             """
             INSERT INTO assignments
-            (course_id,title,description,due_date,total_marks,teacher,created_at)
+            (
+                course_id,
+                title,
+                description,
+                due_date,
+                total_marks,
+                teacher,
+                created_at
+            )
             VALUES (?,?,?,?,?,?,?)
             """,
             (
@@ -457,6 +553,10 @@ def create_demo_assignments():
         )
 
 
+# ============================================================
+# DEMO QUIZZES
+# ============================================================
+
 def create_demo_quizzes():
 
     count = execute(
@@ -470,7 +570,12 @@ def create_demo_quizzes():
     questions = [
         {
             "question": "Which language is widely used for AI?",
-            "options": ["Python", "HTML", "CSS", "SQL"],
+            "options": [
+                "Python",
+                "HTML",
+                "CSS",
+                "SQL",
+            ],
             "answer": "Python",
         },
         {
@@ -488,7 +593,15 @@ def create_demo_quizzes():
     execute(
         """
         INSERT INTO quizzes
-        (course,title,questions,duration,total_marks,teacher,created_at)
+        (
+            course,
+            title,
+            questions,
+            duration,
+            total_marks,
+            teacher,
+            created_at
+        )
         VALUES (?,?,?,?,?,?,?)
         """,
         (
@@ -504,7 +617,7 @@ def create_demo_quizzes():
 
 
 # ============================================================
-# OPENAI
+# OPENAI SETTINGS
 # ============================================================
 
 def get_api_key():
@@ -521,9 +634,15 @@ def get_api_key():
 def get_ai_mode():
 
     try:
-        mode = st.secrets.get("AI_MODE", "API")
+        mode = st.secrets.get(
+            "AI_MODE",
+            "API",
+        )
     except Exception:
-        mode = os.getenv("AI_MODE", "API")
+        mode = os.getenv(
+            "AI_MODE",
+            "API",
+        )
 
     return str(mode).upper()
 
@@ -542,24 +661,39 @@ def get_model():
         )
 
 
-def ask_openai(prompt, system_prompt="You are Mohammad Ahmad, the main AI agent of Padho Pakistan."):
+# ============================================================
+# OPENAI REQUEST
+# ============================================================
+
+def ask_openai(
+    prompt,
+    system_prompt=(
+        "You are Mohammad Ahmad, the Main AI Agent "
+        "of PADHO PAKISTAN."
+    ),
+):
 
     api_key = get_api_key()
 
     if not api_key:
+
         return (
             "API key is not configured. "
             "Please add OPENAI_API_KEY to Streamlit Secrets."
         )
 
     if OpenAI is None:
+
         return (
             "OpenAI package is not installed. "
             "Run: pip install openai"
         )
 
     try:
-        client = OpenAI(api_key=api_key)
+
+        client = OpenAI(
+            api_key=api_key
+        )
 
         response = client.responses.create(
             model=get_model(),
@@ -570,18 +704,13 @@ def ask_openai(prompt, system_prompt="You are Mohammad Ahmad, the main AI agent 
         return response.output_text
 
     except Exception as e:
+
         return f"OpenAI Error: {e}"
 
 
-def ai_response(prompt):
-
-    mode = get_ai_mode()
-
-    if mode == "DEMO":
-        return demo_ai_response(prompt)
-
-    return ask_openai(prompt)
-
+# ============================================================
+# DEMO AI
+# ============================================================
 
 def demo_ai_response(prompt):
 
@@ -590,13 +719,13 @@ def demo_ai_response(prompt):
     if "assignment" in prompt_lower:
         return (
             "Mohammad Ahmad has routed your request to the "
-            "Assignment Agent. Demo mode: assignment services are ready."
+            "Assignment Agent. Demo mode is active."
         )
 
     if "quiz" in prompt_lower:
         return (
             "Mohammad Ahmad has routed your request to the "
-            "Quiz Agent. Demo mode: quiz generation is available."
+            "Quiz Agent. Demo mode is active."
         )
 
     if "attendance" in prompt_lower:
@@ -618,14 +747,22 @@ def demo_ai_response(prompt):
         )
 
     return (
-        "Hello! I am Mohammad Ahmad, the Main AI Agent of "
-        "PADHO PAKISTAN. Demo Mode is active. "
-        "I can coordinate the 50 LMS agents."
+        "Hello! I am Mohammad Ahmad, the Main AI Agent "
+        "of PADHO PAKISTAN. Demo Mode is active. "
+        "I can coordinate all 50 LMS agents."
     )
 
 
+def ai_response(prompt):
+
+    if get_ai_mode() == "DEMO":
+        return demo_ai_response(prompt)
+
+    return ask_openai(prompt)
+
+
 # ============================================================
-# MAIN AGENT ROUTER
+# AGENT ROUTER
 # ============================================================
 
 def route_agent(user_request):
@@ -633,76 +770,200 @@ def route_agent(user_request):
     text = user_request.lower()
 
     rules = [
-        (["student", "student profile"], "Student Management Agent"),
-        (["teacher"], "Teacher Management Agent"),
-        (["course"], "Course Management Agent"),
-        (["subject"], "Subject Management Agent"),
-        (["class", "section"], "Class Management Agent"),
-        (["enroll"], "Enrollment Agent"),
-        (["assignment", "homework"], "Assignment Agent"),
-        (["submit assignment", "submission"], "Assignment Submission Agent"),
-        (["grade assignment", "mark assignment"], "Assignment Grading Agent"),
-        (["quiz"], "Quiz Agent"),
-        (["quiz result", "quiz score"], "Quiz Evaluation Agent"),
-        (["exam"], "Exam Management Agent"),
-        (["question bank"], "Question Bank Agent"),
-        (["generate question"], "AI Question Generator Agent"),
-        (["attendance"], "Attendance Agent"),
-        (["timetable", "schedule"], "Timetable Agent"),
-        (["notes", "study material"], "Study Material Agent"),
-        (["explain", "teach me"], "AI Tutor Agent"),
-        (["lesson plan"], "AI Lesson Planner Agent"),
-        (["curriculum", "clo", "plo"], "Curriculum Agent"),
-        (["performance"], "Student Performance Agent"),
-        (["personalized"], "Personalized Learning Agent"),
-        (["study plan"], "Study Planner Agent"),
-        (["reminder"], "Reminder Agent"),
-        (["notification"], "Notification Agent"),
-        (["certificate"], "Certificate Agent"),
-        (["achievement", "badge"], "Achievement Agent"),
-        (["career"], "Career Guidance Agent"),
-        (["coding", "programming"], "Coding Practice Agent"),
-        (["fyp", "final year project"], "Project/FYP Agent"),
-        (["teacher assistant"], "Teacher Assistant Agent"),
-        (["generate content", "notes generation"], "AI Content Generator Agent"),
-        (["rubric"], "Rubric Agent"),
-        (["feedback"], "Feedback Agent"),
-        (["analytics"], "Analytics Agent"),
-        (["dashboard"], "Dashboard Agent"),
-        (["report"], "Report Generator Agent"),
-        (["pdf"], "PDF Generator Agent"),
-        (["word", "docx"], "Word Document Agent"),
-        (["excel", "xlsx"], "Excel Agent"),
-        (["announcement"], "Announcement Agent"),
-        (["email"], "Email Agent"),
-        (["discussion", "forum"], "Discussion Agent"),
-        (["chatbot"], "Chatbot Agent"),
-        (["search"], "Search Agent"),
-        (["file", "upload"], "File Management Agent"),
-        (["login", "password"], "Authentication Agent"),
-        (["security"], "Security Agent"),
-        (["database"], "Database Agent"),
-        (["system", "settings"], "System Administration Agent"),
+        (["student", "student profile"],
+         "Student Management Agent"),
+
+        (["teacher"],
+         "Teacher Management Agent"),
+
+        (["course"],
+         "Course Management Agent"),
+
+        (["subject"],
+         "Subject Management Agent"),
+
+        (["class", "section"],
+         "Class Management Agent"),
+
+        (["enroll"],
+         "Enrollment Agent"),
+
+        (["submit assignment", "submission"],
+         "Assignment Submission Agent"),
+
+        (["grade assignment", "mark assignment"],
+         "Assignment Grading Agent"),
+
+        (["assignment", "homework"],
+         "Assignment Agent"),
+
+        (["quiz result", "quiz score"],
+         "Quiz Evaluation Agent"),
+
+        (["quiz"],
+         "Quiz Agent"),
+
+        (["exam"],
+         "Exam Management Agent"),
+
+        (["question bank"],
+         "Question Bank Agent"),
+
+        (["generate question"],
+         "AI Question Generator Agent"),
+
+        (["attendance"],
+         "Attendance Agent"),
+
+        (["timetable", "schedule"],
+         "Timetable Agent"),
+
+        (["notes", "study material"],
+         "Study Material Agent"),
+
+        (["explain", "teach me"],
+         "AI Tutor Agent"),
+
+        (["lesson plan"],
+         "AI Lesson Planner Agent"),
+
+        (["curriculum", "clo", "plo"],
+         "Curriculum Agent"),
+
+        (["performance"],
+         "Student Performance Agent"),
+
+        (["personalized"],
+         "Personalized Learning Agent"),
+
+        (["study plan"],
+         "Study Planner Agent"),
+
+        (["reminder"],
+         "Reminder Agent"),
+
+        (["notification"],
+         "Notification Agent"),
+
+        (["certificate"],
+         "Certificate Agent"),
+
+        (["achievement", "badge"],
+         "Achievement Agent"),
+
+        (["career"],
+         "Career Guidance Agent"),
+
+        (["coding", "programming"],
+         "Coding Practice Agent"),
+
+        (["fyp", "final year project"],
+         "Project/FYP Agent"),
+
+        (["teacher assistant"],
+         "Teacher Assistant Agent"),
+
+        (["generate content", "notes generation"],
+         "AI Content Generator Agent"),
+
+        (["rubric"],
+         "Rubric Agent"),
+
+        (["feedback"],
+         "Feedback Agent"),
+
+        (["analytics"],
+         "Analytics Agent"),
+
+        (["dashboard"],
+         "Dashboard Agent"),
+
+        (["report"],
+         "Report Generator Agent"),
+
+        (["pdf"],
+         "PDF Generator Agent"),
+
+        (["word", "docx"],
+         "Word Document Agent"),
+
+        (["excel", "xlsx"],
+         "Excel Agent"),
+
+        (["announcement"],
+         "Announcement Agent"),
+
+        (["email"],
+         "Email Agent"),
+
+        (["discussion", "forum"],
+         "Discussion Agent"),
+
+        (["chatbot"],
+         "Chatbot Agent"),
+
+        (["search"],
+         "Search Agent"),
+
+        (["file", "upload"],
+         "File Management Agent"),
+
+        (["login", "password", "user id"],
+         "Authentication Agent"),
+
+        (["security"],
+         "Security Agent"),
+
+        (["database"],
+         "Database Agent"),
+
+        (["system", "settings"],
+         "System Administration Agent"),
     ]
 
     for keywords, agent in rules:
-        if any(keyword in text for keyword in keywords):
+
+        if any(
+            keyword in text
+            for keyword in keywords
+        ):
             return agent
 
     return "Chatbot Agent"
 
 
-def log_agent_request(request, agent, status="Success"):
+# ============================================================
+# AGENT LOGGING
+# ============================================================
+
+def log_agent_request(
+    request,
+    agent,
+    status="Success",
+):
 
     execute(
         """
         INSERT INTO agent_logs
-        (username,role,request,selected_agent,status,created_at)
+        (
+            username,
+            role,
+            request,
+            selected_agent,
+            status,
+            created_at
+        )
         VALUES (?,?,?,?,?,?)
         """,
         (
-            st.session_state.get("username", ""),
-            st.session_state.get("role", ""),
+            st.session_state.get(
+                "username",
+                "",
+            ),
+            st.session_state.get(
+                "role",
+                "",
+            ),
             request,
             agent,
             status,
@@ -718,55 +979,132 @@ def log_agent_request(request, agent, status="Success"):
 def login():
 
     st.title("🇵🇰 PADHO PAKISTAN")
-    st.subheader("AI-Powered Learning Management System")
-    st.write("### 🤖 Main AI Agent: Mohammad Ahmad")
+
+    st.subheader(
+        "AI-Powered Learning Management System"
+    )
+
+    st.write(
+        "### 🤖 Main AI Agent: Mohammad Ahmad"
+    )
 
     st.info(
-        "Demo accounts: admin/admin123 | "
-        "teacher/teacher123 | student/student123"
+        "Authorized LMS users must use the User ID and "
+        "Password allocated by the Administrator."
     )
+
+    with st.expander(
+        "Demo Login Accounts"
+    ):
+
+        st.write(
+            "Admin: admin / admin123"
+        )
+
+        st.write(
+            "Teacher: teacher / teacher123"
+        )
+
+        st.write(
+            "Student: student / student123"
+        )
 
     with st.form("login_form"):
 
-        username = st.text_input("Username")
+        username = st.text_input(
+            "🆔 User ID"
+        )
+
         password = st.text_input(
-            "Password",
+            "🔐 Password",
             type="password",
         )
 
         submitted = st.form_submit_button(
             "🔐 Login",
             use_container_width=True,
+            type="primary",
         )
 
         if submitted:
 
             user = execute(
                 """
-                SELECT * FROM users
-                WHERE username=? AND password=?
+                SELECT *
+                FROM users
+                WHERE username=?
+                AND password=?
                 """,
                 (
-                    username,
+                    username.strip(),
                     hash_password(password),
                 ),
                 fetch=True,
             )
 
-            if user:
+            if not user:
 
-                user = user[0]
+                st.error(
+                    "Invalid User ID or Password."
+                )
 
-                st.session_state.logged_in = True
-                st.session_state.username = user["username"]
-                st.session_state.role = user["role"]
-                st.session_state.user_id = user["id"]
+                return
 
-                st.success("Login successful.")
-                st.rerun()
+            user = user[0]
 
-            else:
-                st.error("Invalid username or password.")
+            if user["status"] != "Active":
+
+                st.error(
+                    "🚫 Your LMS account is inactive. "
+                    "Please contact the Administrator."
+                )
+
+                return
+
+            st.session_state.logged_in = True
+            st.session_state.username = user["username"]
+            st.session_state.role = user["role"]
+            st.session_state.user_id = user["id"]
+
+            execute(
+                """
+                UPDATE users
+                SET last_login=?
+                WHERE id=?
+                """,
+                (
+                    datetime.now().isoformat(),
+                    user["id"],
+                ),
+            )
+
+            st.success(
+                "Login successful."
+            )
+
+            st.rerun()
+
+
+# ============================================================
+# ADMIN ACCESS CHECK
+# ============================================================
+
+def admin_only():
+
+    if st.session_state.role != "Admin":
+
+        st.error(
+            "🚫 Administrator access required."
+        )
+
+        st.warning(
+            "This area is restricted to authorized "
+            "LMS administrators."
+        )
+
+        return False
+
+    return True
 
 
 # ============================================================
@@ -775,18 +1113,33 @@ def login():
 
 def sidebar():
 
-    st.sidebar.title("🇵🇰 PADHO PAKISTAN")
-    st.sidebar.caption("Powered by Mohammad Ahmad")
+    st.sidebar.title(
+        "🇵🇰 PADHO PAKISTAN"
+    )
 
-    mode = get_ai_mode()
+    st.sidebar.caption(
+        "Powered by Mohammad Ahmad"
+    )
 
-    if mode == "DEMO":
-        st.sidebar.warning("🟡 DEMO MODE")
+    if get_ai_mode() == "DEMO":
+
+        st.sidebar.warning(
+            "🟡 DEMO MODE"
+        )
+
     else:
+
         if get_api_key():
-            st.sidebar.success("🟢 OPENAI API MODE")
+
+            st.sidebar.success(
+                "🟢 OPENAI API MODE"
+            )
+
         else:
-            st.sidebar.error("🔴 API KEY NOT FOUND")
+
+            st.sidebar.error(
+                "🔴 API KEY NOT FOUND"
+            )
 
     st.sidebar.divider()
 
@@ -824,6 +1177,7 @@ def sidebar():
     ]
 
     admin_items = [
+        "👑 Admin Panel",
         "Users",
         "Courses",
         "All Assignments",
@@ -836,10 +1190,15 @@ def sidebar():
 
     pages = common.copy()
 
-    if st.session_state.role in ["Teacher", "Admin"]:
+    if st.session_state.role in [
+        "Teacher",
+        "Admin",
+    ]:
+
         pages += teacher_items
 
     if st.session_state.role == "Admin":
+
         pages += admin_items
 
     pages += [
@@ -862,18 +1221,30 @@ def sidebar():
 
 def dashboard():
 
-    st.title("🏠 PADHO PAKISTAN Dashboard")
+    st.title(
+        "🏠 PADHO PAKISTAN Dashboard"
+    )
 
     st.write(
         f"Welcome **{st.session_state.username}**"
     )
 
     st.caption(
-        "Your intelligent education platform controlled by Mohammad Ahmad."
+        "Your intelligent education platform "
+        "controlled by Mohammad Ahmad."
     )
 
     user_count = execute(
         "SELECT COUNT(*) c FROM users",
+        fetch=True,
+    )[0]["c"]
+
+    active_users = execute(
+        """
+        SELECT COUNT(*) c
+        FROM users
+        WHERE status='Active'
+        """,
         fetch=True,
     )[0]["c"]
 
@@ -892,12 +1263,32 @@ def dashboard():
         fetch=True,
     )[0]["c"]
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
 
-    c1.metric("👥 Users", user_count)
-    c2.metric("📚 Courses", course_count)
-    c3.metric("📝 Assignments", assignment_count)
-    c4.metric("🧠 Quizzes", quiz_count)
+    c1.metric(
+        "👥 Users",
+        user_count,
+    )
+
+    c2.metric(
+        "🟢 Active Users",
+        active_users,
+    )
+
+    c3.metric(
+        "📚 Courses",
+        course_count,
+    )
+
+    c4.metric(
+        "📝 Assignments",
+        assignment_count,
+    )
+
+    c5.metric(
+        "🧠 Quizzes",
+        quiz_count,
+    )
 
     st.divider()
 
@@ -905,10 +1296,13 @@ def dashboard():
 
     with left:
 
-        st.subheader("🤖 Mohammad Ahmad")
+        st.subheader(
+            "🤖 Mohammad Ahmad"
+        )
 
         st.info(
-            "Main AI Agent is ready to coordinate all 50 specialized agents."
+            "Main AI Agent is ready to coordinate "
+            "all 50 specialized agents."
         )
 
         st.write(
@@ -926,45 +1320,67 @@ def dashboard():
 
     with right:
 
-        st.subheader("📢 Latest Announcements")
+        st.subheader(
+            "📢 Latest Announcements"
+        )
 
         announcements = execute(
             """
-            SELECT * FROM announcements
-            ORDER BY id DESC LIMIT 5
+            SELECT *
+            FROM announcements
+            ORDER BY id DESC
+            LIMIT 5
             """,
             fetch=True,
         )
 
         if not announcements:
-            st.info("No announcements available.")
+
+            st.info(
+                "No announcements available."
+            )
 
         for item in announcements:
+
             st.write(
                 f"**{item['title']}**"
             )
-            st.caption(item["message"])
+
+            st.caption(
+                item["message"]
+            )
 
 
 # ============================================================
-# MOHAMMAD AHMAD AI
+# MOHAMMAD AHMAD
 # ============================================================
 
 def mohammad_ahmad():
 
-    st.title("🤖 MOHAMMAD AHMAD")
-    st.subheader("Main AI LMS Agent")
+    st.title(
+        "🤖 MOHAMMAD AHMAD"
+    )
+
+    st.subheader(
+        "Main AI LMS Agent"
+    )
 
     st.info(
-        "Mohammad Ahmad controls and coordinates all 50 PADHO PAKISTAN agents."
+        "Mohammad Ahmad controls and coordinates "
+        "all 50 PADHO PAKISTAN agents."
     )
 
     if st.session_state.chat_messages:
 
         for message in st.session_state.chat_messages:
 
-            with st.chat_message(message["role"]):
-                st.write(message["content"])
+            with st.chat_message(
+                message["role"]
+            ):
+
+                st.write(
+                    message["content"]
+                )
 
     prompt = st.chat_input(
         "Ask Mohammad Ahmad anything about the LMS..."
@@ -979,7 +1395,9 @@ def mohammad_ahmad():
             }
         )
 
-        agent = route_agent(prompt)
+        agent = route_agent(
+            prompt
+        )
 
         st.session_state.selected_agent = agent
 
@@ -989,7 +1407,10 @@ def mohammad_ahmad():
 
             response = ai_response(
                 f"""
-You are Mohammad Ahmad, the Main AI Agent of PADHO PAKISTAN.
+You are Mohammad Ahmad, the Main AI Agent
+of PADHO PAKISTAN.
+
+You coordinate 50 specialized LMS agents.
 
 User role:
 {st.session_state.role}
@@ -1035,7 +1456,9 @@ Respond professionally and helpfully.
 
 def assignments():
 
-    st.title("📝 Assignments")
+    st.title(
+        "📝 Assignments"
+    )
 
     rows = execute(
         """
@@ -1056,7 +1479,11 @@ def assignments():
     )
 
     if not rows:
-        st.info("No assignments available.")
+
+        st.info(
+            "No assignments available."
+        )
+
         return
 
     for item in rows:
@@ -1065,7 +1492,9 @@ def assignments():
             f"📝 {item['title']} — {item['course']}"
         ):
 
-            st.write(item["description"])
+            st.write(
+                item["description"]
+            )
 
             c1, c2, c3 = st.columns(3)
 
@@ -1088,15 +1517,25 @@ def assignments():
 
 def submit_assignment():
 
-    st.title("📤 Submit Assignment")
+    st.title(
+        "📤 Submit Assignment"
+    )
 
     assignments_data = execute(
-        "SELECT id,title FROM assignments ORDER BY id DESC",
+        """
+        SELECT id,title
+        FROM assignments
+        ORDER BY id DESC
+        """,
         fetch=True,
     )
 
     if not assignments_data:
-        st.warning("No assignments available.")
+
+        st.warning(
+            "No assignments available."
+        )
+
         return
 
     options = {
@@ -1146,16 +1585,28 @@ def submit_assignment():
 
             path = UPLOAD_DIR / safe_name
 
-            with open(path, "wb") as f:
-                f.write(uploaded.getbuffer())
+            with open(
+                path,
+                "wb",
+            ) as f:
+
+                f.write(
+                    uploaded.getbuffer()
+                )
 
             file_name = safe_name
 
         execute(
             """
             INSERT INTO submissions
-            (assignment_id,student,submission_text,file_name,
-             submitted_at,status)
+            (
+                assignment_id,
+                student,
+                submission_text,
+                file_name,
+                submitted_at,
+                status
+            )
             VALUES (?,?,?,?,?,?)
             """,
             (
@@ -1168,7 +1619,9 @@ def submit_assignment():
             ),
         )
 
-        st.success("Assignment submitted successfully.")
+        st.success(
+            "Assignment submitted successfully."
+        )
 
 
 # ============================================================
@@ -1177,21 +1630,35 @@ def submit_assignment():
 
 def manage_assignments():
 
-    st.title("📝 Manage Assignments")
+    st.title(
+        "📝 Manage Assignments"
+    )
 
     courses = execute(
         "SELECT id,name FROM courses",
         fetch=True,
     )
 
+    if not courses:
+
+        st.warning(
+            "Create a course first."
+        )
+
+        return
+
     course_map = {
         x["name"]: x["id"]
         for x in courses
     }
 
-    with st.form("assignment_form"):
+    with st.form(
+        "assignment_form"
+    ):
 
-        title = st.text_input("Assignment Title")
+        title = st.text_input(
+            "Assignment Title"
+        )
 
         course = st.selectbox(
             "Course",
@@ -1218,11 +1685,26 @@ def manage_assignments():
 
         if submit:
 
+            if not title.strip():
+
+                st.error(
+                    "Assignment title is required."
+                )
+
+                return
+
             execute(
                 """
                 INSERT INTO assignments
-                (course_id,title,description,due_date,
-                 total_marks,teacher,created_at)
+                (
+                    course_id,
+                    title,
+                    description,
+                    due_date,
+                    total_marks,
+                    teacher,
+                    created_at
+                )
                 VALUES (?,?,?,?,?,?,?)
                 """,
                 (
@@ -1236,7 +1718,9 @@ def manage_assignments():
                 ),
             )
 
-            st.success("Assignment created successfully.")
+            st.success(
+                "Assignment created successfully."
+            )
 
 
 # ============================================================
@@ -1245,15 +1729,25 @@ def manage_assignments():
 
 def quizzes():
 
-    st.title("🧠 Quizzes")
+    st.title(
+        "🧠 Quizzes"
+    )
 
     quiz_data = execute(
-        "SELECT * FROM quizzes ORDER BY id DESC",
+        """
+        SELECT *
+        FROM quizzes
+        ORDER BY id DESC
+        """,
         fetch=True,
     )
 
     if not quiz_data:
-        st.info("No quizzes available.")
+
+        st.info(
+            "No quizzes available."
+        )
+
         return
 
     for quiz in quiz_data:
@@ -1277,7 +1771,8 @@ def quizzes():
             ):
 
                 st.write(
-                    f"**Q{i + 1}. {question['question']}**"
+                    f"**Q{i + 1}. "
+                    f"{question['question']}**"
                 )
 
                 answers[i] = st.radio(
@@ -1302,16 +1797,25 @@ def quizzes():
                         answers[i]
                         == question["answer"]
                     ):
+
                         score += 1
 
                 percentage = (
-                    score / len(questions) * 100
+                    score
+                    / len(questions)
+                    * 100
                 )
 
                 execute(
                     """
                     INSERT INTO quiz_attempts
-                    (quiz_id,student,score,percentage,submitted_at)
+                    (
+                        quiz_id,
+                        student,
+                        score,
+                        percentage,
+                        submitted_at
+                    )
                     VALUES (?,?,?,?,?)
                     """,
                     (
@@ -1336,9 +1840,13 @@ def quizzes():
 
 def manage_quizzes():
 
-    st.title("🧠 Quiz Management")
+    st.title(
+        "🧠 Quiz Management"
+    )
 
-    with st.form("quiz_form"):
+    with st.form(
+        "quiz_form"
+    ):
 
         title = st.text_input(
             "Quiz Title"
@@ -1377,7 +1885,12 @@ def manage_quizzes():
 
         answer = st.selectbox(
             "Correct Answer",
-            [q1a, q1b, q1c, q1d],
+            [
+                q1a,
+                q1b,
+                q1c,
+                q1d,
+            ],
         )
 
         create = st.form_submit_button(
@@ -1385,6 +1898,14 @@ def manage_quizzes():
         )
 
         if create:
+
+            if not title.strip():
+
+                st.error(
+                    "Quiz title is required."
+                )
+
+                return
 
             questions = [
                 {
@@ -1402,8 +1923,15 @@ def manage_quizzes():
             execute(
                 """
                 INSERT INTO quizzes
-                (course,title,questions,duration,
-                 total_marks,teacher,created_at)
+                (
+                    course,
+                    title,
+                    questions,
+                    duration,
+                    total_marks,
+                    teacher,
+                    created_at
+                )
                 VALUES (?,?,?,?,?,?,?)
                 """,
                 (
@@ -1417,7 +1945,9 @@ def manage_quizzes():
                 ),
             )
 
-            st.success("Quiz created successfully.")
+            st.success(
+                "Quiz created successfully."
+            )
 
 
 # ============================================================
@@ -1426,21 +1956,31 @@ def manage_quizzes():
 
 def attendance():
 
-    st.title("📋 Attendance")
+    st.title(
+        "📋 Attendance"
+    )
 
     if st.session_state.role == "Student":
 
         records = execute(
             """
-            SELECT course,
-                   SUM(CASE WHEN status='Present'
-                       THEN 1 ELSE 0 END) AS present,
-                   COUNT(*) AS total
+            SELECT
+                course,
+                SUM(
+                    CASE
+                    WHEN status='Present'
+                    THEN 1
+                    ELSE 0
+                    END
+                ) AS present,
+                COUNT(*) AS total
             FROM attendance
             WHERE student=?
             GROUP BY course
             """,
-            (st.session_state.username,),
+            (
+                st.session_state.username,
+            ),
             fetch=True,
         )
 
@@ -1455,9 +1995,9 @@ def attendance():
         for row in records:
 
             percentage = (
-                row["present"] /
-                row["total"] *
-                100
+                row["present"]
+                / row["total"]
+                * 100
             )
 
             st.metric(
@@ -1476,6 +2016,7 @@ def attendance():
             SELECT username,name
             FROM users
             WHERE role='Student'
+            AND status='Active'
             """,
             fetch=True,
         )
@@ -1520,7 +2061,12 @@ def attendance():
                 execute(
                     """
                     INSERT INTO attendance
-                    (student,course,attendance_date,status)
+                    (
+                        student,
+                        course,
+                        attendance_date,
+                        status
+                    )
                     VALUES (?,?,?,?)
                     """,
                     (
@@ -1542,18 +2088,26 @@ def attendance():
 
 def results():
 
-    st.title("📊 Results")
+    st.title(
+        "📊 Results"
+    )
 
     if st.session_state.role == "Student":
 
         rows = execute(
             """
-            SELECT course,marks,grade,
-                   grade_point,semester
+            SELECT
+                course,
+                marks,
+                grade,
+                grade_point,
+                semester
             FROM results
             WHERE student=?
             """,
-            (st.session_state.username,),
+            (
+                st.session_state.username,
+            ),
             fetch=True,
         )
 
@@ -1561,25 +2115,37 @@ def results():
 
         rows = execute(
             """
-            SELECT student,course,marks,
-                   grade,grade_point,semester
+            SELECT
+                student,
+                course,
+                marks,
+                grade,
+                grade_point,
+                semester
             FROM results
             """,
             fetch=True,
         )
 
     if not rows:
-        st.info("No results available.")
+
+        st.info(
+            "No results available."
+        )
+
         return
 
     if pd:
+
         st.dataframe(
             pd.DataFrame(
                 [dict(x) for x in rows]
             ),
             use_container_width=True,
         )
+
     else:
+
         st.write(
             [dict(x) for x in rows]
         )
@@ -1591,17 +2157,21 @@ def results():
 
 def study_materials():
 
-    st.title("📖 Study Materials")
+    st.title(
+        "📖 Study Materials"
+    )
 
     materials = execute(
         """
-        SELECT * FROM materials
+        SELECT *
+        FROM materials
         ORDER BY id DESC
         """,
         fetch=True,
     )
 
     if not materials:
+
         st.info(
             "No study materials uploaded."
         )
@@ -1624,20 +2194,29 @@ def study_materials():
 
 def notifications():
 
-    st.title("🔔 Notifications")
+    st.title(
+        "🔔 Notifications"
+    )
 
     rows = execute(
         """
-        SELECT * FROM notifications
+        SELECT *
+        FROM notifications
         WHERE username=?
         ORDER BY id DESC
         """,
-        (st.session_state.username,),
+        (
+            st.session_state.username,
+        ),
         fetch=True,
     )
 
     if not rows:
-        st.info("No notifications.")
+
+        st.info(
+            "No notifications."
+        )
+
         return
 
     for row in rows:
@@ -1653,7 +2232,9 @@ def notifications():
 
 def ai_tutor():
 
-    st.title("🤖 AI Tutor")
+    st.title(
+        "🤖 AI Tutor"
+    )
 
     topic = st.text_input(
         "What would you like to learn?"
@@ -1673,6 +2254,14 @@ def ai_tutor():
         type="primary",
     ):
 
+        if not topic.strip():
+
+            st.warning(
+                "Please enter a topic."
+            )
+
+            return
+
         with st.spinner(
             "AI Tutor is preparing your lesson..."
         ):
@@ -1689,6 +2278,7 @@ Student level:
 {level}
 
 Provide:
+
 1. Simple explanation
 2. Example
 3. Practical example
@@ -1697,7 +2287,9 @@ Provide:
 """
             )
 
-        st.markdown(response)
+        st.markdown(
+            response
+        )
 
 
 # ============================================================
@@ -1706,7 +2298,9 @@ Provide:
 
 def lesson_planner():
 
-    st.title("🧑‍🏫 AI Lesson Planner")
+    st.title(
+        "🧑‍🏫 AI Lesson Planner"
+    )
 
     topic = st.text_input(
         "Lesson Topic"
@@ -1727,10 +2321,14 @@ def lesson_planner():
             f"""
 Create a detailed university-level lesson plan.
 
-Topic: {topic}
-Duration: {duration} minutes
+Topic:
+{topic}
+
+Duration:
+{duration} minutes
 
 Include:
+
 Learning objectives
 Introduction
 Teaching activities
@@ -1742,7 +2340,9 @@ Learning outcomes
 """
         )
 
-        st.markdown(response)
+        st.markdown(
+            response
+        )
 
 
 # ============================================================
@@ -1751,7 +2351,9 @@ Learning outcomes
 
 def reports():
 
-    st.title("📄 Reports")
+    st.title(
+        "📄 Reports"
+    )
 
     report_type = st.selectbox(
         "Report Type",
@@ -1808,13 +2410,851 @@ def reports():
 
             csv = df.to_csv(
                 index=False
-            ).encode("utf-8")
+            ).encode(
+                "utf-8"
+            )
 
             st.download_button(
                 "⬇️ Download CSV",
                 csv,
-                file_name="padho_pakistan_report.csv",
+                file_name=(
+                    "padho_pakistan_report.csv"
+                ),
                 mime="text/csv",
+            )
+
+
+# ============================================================
+# ADMIN PANEL
+# ============================================================
+
+def admin_panel():
+
+    if not admin_only():
+        return
+
+    st.title(
+        "👑 PADHO PAKISTAN ADMIN PANEL"
+    )
+
+    st.subheader(
+        "🔐 LMS User Access Management"
+    )
+
+    st.info(
+        "The Administrator controls who can access "
+        "PADHO PAKISTAN. Create User IDs, allocate "
+        "passwords, assign roles and control account status."
+    )
+
+    # --------------------------------------------------------
+    # STATISTICS
+    # --------------------------------------------------------
+
+    total_users = execute(
+        "SELECT COUNT(*) c FROM users",
+        fetch=True,
+    )[0]["c"]
+
+    active_users = execute(
+        """
+        SELECT COUNT(*) c
+        FROM users
+        WHERE status='Active'
+        """,
+        fetch=True,
+    )[0]["c"]
+
+    inactive_users = execute(
+        """
+        SELECT COUNT(*) c
+        FROM users
+        WHERE status!='Active'
+        """,
+        fetch=True,
+    )[0]["c"]
+
+    students = execute(
+        """
+        SELECT COUNT(*) c
+        FROM users
+        WHERE role='Student'
+        """,
+        fetch=True,
+    )[0]["c"]
+
+    teachers = execute(
+        """
+        SELECT COUNT(*) c
+        FROM users
+        WHERE role='Teacher'
+        """,
+        fetch=True,
+    )[0]["c"]
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+
+    c1.metric(
+        "Total Users",
+        total_users,
+    )
+
+    c2.metric(
+        "Active",
+        active_users,
+    )
+
+    c3.metric(
+        "Inactive",
+        inactive_users,
+    )
+
+    c4.metric(
+        "Students",
+        students,
+    )
+
+    c5.metric(
+        "Teachers",
+        teachers,
+    )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # CREATE ACCOUNT
+    # --------------------------------------------------------
+
+    st.subheader(
+        "➕ Allocate New LMS Account"
+    )
+
+    with st.form(
+        "admin_create_user"
+    ):
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+
+            new_username = st.text_input(
+                "🆔 LMS User ID",
+                placeholder="e.g. bilal001",
+            )
+
+            new_name = st.text_input(
+                "👤 Full Name",
+                placeholder="Enter user's full name",
+            )
+
+            new_email = st.text_input(
+                "📧 Email",
+                placeholder="user@example.com",
+            )
+
+            new_role = st.selectbox(
+                "🔑 User Role",
+                [
+                    "Student",
+                    "Teacher",
+                    "Admin",
+                ],
+            )
+
+        with col2:
+
+            new_department = st.text_input(
+                "🏢 Department",
+                placeholder="Computer Science",
+            )
+
+            new_semester = st.text_input(
+                "📚 Semester",
+                placeholder="e.g. 5",
+            )
+
+            new_password = st.text_input(
+                "🔐 Password",
+                type="password",
+                placeholder="Enter password",
+            )
+
+            auto_password = st.checkbox(
+                "Generate secure password automatically",
+                value=False,
+            )
+
+        create_account = st.form_submit_button(
+            "➕ CREATE LMS ACCOUNT",
+            type="primary",
+            use_container_width=True,
+        )
+
+        if create_account:
+
+            username = new_username.strip()
+            password = new_password.strip()
+
+            if not username:
+
+                st.error(
+                    "User ID is required."
+                )
+
+            elif not new_name.strip():
+
+                st.error(
+                    "Full Name is required."
+                )
+
+            else:
+
+                if auto_password:
+                    password = generate_password(12)
+
+                if not password:
+
+                    st.error(
+                        "Password is required or enable "
+                        "automatic password generation."
+                    )
+
+                else:
+
+                    existing = execute(
+                        """
+                        SELECT id
+                        FROM users
+                        WHERE username=?
+                        """,
+                        (username,),
+                        fetch=True,
+                    )
+
+                    if existing:
+
+                        st.error(
+                            "This User ID already exists."
+                        )
+
+                    else:
+
+                        try:
+
+                            execute(
+                                """
+                                INSERT INTO users
+                                (
+                                    username,
+                                    password,
+                                    name,
+                                    role,
+                                    email,
+                                    department,
+                                    semester,
+                                    status,
+                                    created_at
+                                )
+                                VALUES (?,?,?,?,?,?,?,?,?)
+                                """,
+                                (
+                                    username,
+                                    hash_password(
+                                        password
+                                    ),
+                                    new_name.strip(),
+                                    new_role,
+                                    new_email.strip(),
+                                    new_department.strip(),
+                                    new_semester.strip(),
+                                    "Active",
+                                    datetime.now().isoformat(),
+                                ),
+                            )
+
+                            st.success(
+                                f"✅ LMS account created "
+                                f"for {new_name}."
+                            )
+
+                            st.code(
+                                f"User ID: {username}\n"
+                                f"Password: {password}\n"
+                                f"Role: {new_role}",
+                                language="text",
+                            )
+
+                            st.warning(
+                                "Give these credentials only "
+                                "to the authorized user."
+                            )
+
+                        except Exception as e:
+
+                            st.error(
+                                f"Unable to create account: {e}"
+                            )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # SEARCH USERS
+    # --------------------------------------------------------
+
+    st.subheader(
+        "🔎 Search LMS Users"
+    )
+
+    search = st.text_input(
+        "Search by User ID, Name, Email or Department",
+        placeholder="Type search text...",
+    )
+
+    if search.strip():
+
+        search_value = f"%{search.strip()}%"
+
+        users = execute(
+            """
+            SELECT *
+            FROM users
+            WHERE username LIKE ?
+               OR name LIKE ?
+               OR email LIKE ?
+               OR department LIKE ?
+            ORDER BY id DESC
+            """,
+            (
+                search_value,
+                search_value,
+                search_value,
+                search_value,
+            ),
+            fetch=True,
+        )
+
+    else:
+
+        users = execute(
+            """
+            SELECT *
+            FROM users
+            ORDER BY id DESC
+            """,
+            fetch=True,
+        )
+
+    # --------------------------------------------------------
+    # USER TABLE
+    # --------------------------------------------------------
+
+    st.subheader(
+        "👥 LMS User Accounts"
+    )
+
+    if users and pd:
+
+        display_data = []
+
+        for user in users:
+
+            display_data.append(
+                {
+                    "Database ID": user["id"],
+                    "User ID": user["username"],
+                    "Name": user["name"],
+                    "Role": user["role"],
+                    "Email": user["email"],
+                    "Department": user["department"],
+                    "Semester": user["semester"],
+                    "Status": user["status"],
+                    "Created": user["created_at"],
+                    "Last Login": user["last_login"],
+                }
+            )
+
+        st.dataframe(
+            pd.DataFrame(display_data),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    elif users:
+
+        for user in users:
+
+            st.write(
+                user["username"],
+                user["name"],
+                user["role"],
+                user["status"],
+            )
+
+    else:
+
+        st.info(
+            "No users found."
+        )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # MANAGE EXISTING ACCOUNT
+    # --------------------------------------------------------
+
+    st.subheader(
+        "🛠️ Manage Existing LMS Account"
+    )
+
+    if not users:
+
+        st.info(
+            "No accounts available."
+        )
+
+        return
+
+    user_options = {
+        f"{u['username']} — "
+        f"{u['name']} — "
+        f"{u['role']} — "
+        f"{u['status']}": u["id"]
+        for u in users
+    }
+
+    selected_label = st.selectbox(
+        "Select User Account",
+        list(user_options.keys()),
+    )
+
+    selected_id = user_options[
+        selected_label
+    ]
+
+    selected_user_rows = execute(
+        """
+        SELECT *
+        FROM users
+        WHERE id=?
+        """,
+        (selected_id,),
+        fetch=True,
+    )
+
+    if not selected_user_rows:
+        return
+
+    selected_user = selected_user_rows[0]
+
+    st.write(
+        f"### 👤 {selected_user['name']}"
+    )
+
+    info1, info2, info3, info4 = st.columns(4)
+
+    info1.metric(
+        "User ID",
+        selected_user["username"],
+    )
+
+    info2.metric(
+        "Role",
+        selected_user["role"],
+    )
+
+    info3.metric(
+        "Status",
+        selected_user["status"],
+    )
+
+    info4.metric(
+        "Database ID",
+        selected_user["id"],
+    )
+
+    # --------------------------------------------------------
+    # ACCOUNT ACTIONS
+    # --------------------------------------------------------
+
+    tab1, tab2, tab3 = st.tabs(
+        [
+            "🔐 Password",
+            "⚙️ Account Settings",
+            "🗑️ Delete",
+        ]
+    )
+
+    # --------------------------------------------------------
+    # PASSWORD
+    # --------------------------------------------------------
+
+    with tab1:
+
+        st.write(
+            "### 🔐 Reset / Allocate Password"
+        )
+
+        with st.form(
+            "reset_password_form"
+        ):
+
+            password1 = st.text_input(
+                "New Password",
+                type="password",
+            )
+
+            password2 = st.text_input(
+                "Confirm New Password",
+                type="password",
+            )
+
+            generate_new = st.checkbox(
+                "Generate secure password automatically"
+            )
+
+            reset_password = st.form_submit_button(
+                "🔐 RESET PASSWORD",
+                type="primary",
+            )
+
+            if reset_password:
+
+                if generate_new:
+
+                    final_password = generate_password(
+                        12
+                    )
+
+                else:
+
+                    final_password = password1.strip()
+
+                    if not final_password:
+
+                        st.error(
+                            "Enter a password."
+                        )
+
+                        st.stop()
+
+                    if final_password != password2:
+
+                        st.error(
+                            "Passwords do not match."
+                        )
+
+                        st.stop()
+
+                execute(
+                    """
+                    UPDATE users
+                    SET password=?
+                    WHERE id=?
+                    """,
+                    (
+                        hash_password(
+                            final_password
+                        ),
+                        selected_user["id"],
+                    ),
+                )
+
+                st.success(
+                    "Password successfully updated."
+                )
+
+                st.code(
+                    f"User ID: "
+                    f"{selected_user['username']}\n"
+                    f"New Password: "
+                    f"{final_password}",
+                    language="text",
+                )
+
+    # --------------------------------------------------------
+    # ACCOUNT SETTINGS
+    # --------------------------------------------------------
+
+    with tab2:
+
+        st.write(
+            "### ⚙️ Account Settings"
+        )
+
+        with st.form(
+            "account_settings_form"
+        ):
+
+            updated_name = st.text_input(
+                "Full Name",
+                value=selected_user["name"],
+            )
+
+            updated_email = st.text_input(
+                "Email",
+                value=selected_user["email"] or "",
+            )
+
+            updated_role = st.selectbox(
+                "Role",
+                [
+                    "Student",
+                    "Teacher",
+                    "Admin",
+                ],
+                index=[
+                    "Student",
+                    "Teacher",
+                    "Admin",
+                ].index(
+                    selected_user["role"]
+                ),
+            )
+
+            updated_department = st.text_input(
+                "Department",
+                value=(
+                    selected_user["department"]
+                    or ""
+                ),
+            )
+
+            updated_semester = st.text_input(
+                "Semester",
+                value=(
+                    selected_user["semester"]
+                    or ""
+                ),
+            )
+
+            updated_status = st.selectbox(
+                "Account Status",
+                [
+                    "Active",
+                    "Inactive",
+                ],
+                index=(
+                    0
+                    if selected_user["status"]
+                    == "Active"
+                    else 1
+                ),
+            )
+
+            save_changes = st.form_submit_button(
+                "💾 SAVE ACCOUNT SETTINGS",
+                type="primary",
+            )
+
+            if save_changes:
+
+                # Prevent accidental removal of current admin
+                if (
+                    selected_user["id"]
+                    == st.session_state.user_id
+                    and updated_status
+                    != "Active"
+                ):
+
+                    st.error(
+                        "You cannot deactivate your own "
+                        "currently logged-in administrator account."
+                    )
+
+                else:
+
+                    execute(
+                        """
+                        UPDATE users
+                        SET
+                            name=?,
+                            email=?,
+                            role=?,
+                            department=?,
+                            semester=?,
+                            status=?
+                        WHERE id=?
+                        """,
+                        (
+                            updated_name.strip(),
+                            updated_email.strip(),
+                            updated_role,
+                            updated_department.strip(),
+                            updated_semester.strip(),
+                            updated_status,
+                            selected_user["id"],
+                        ),
+                    )
+
+                    st.success(
+                        "Account settings updated."
+                    )
+
+    # --------------------------------------------------------
+    # DELETE ACCOUNT
+    # --------------------------------------------------------
+
+    with tab3:
+
+        st.write(
+            "### 🗑️ Delete LMS Account"
+        )
+
+        st.warning(
+            "Deleting an account is permanent. "
+            "The user's academic records may still reference "
+            "the User ID."
+        )
+
+        confirm_delete = st.checkbox(
+            "I understand that this account will be permanently deleted."
+        )
+
+        if st.button(
+            "🗑️ DELETE ACCOUNT",
+            type="secondary",
+        ):
+
+            if not confirm_delete:
+
+                st.error(
+                    "Please confirm deletion first."
+                )
+
+            elif (
+                selected_user["id"]
+                == st.session_state.user_id
+            ):
+
+                st.error(
+                    "You cannot delete your own "
+                    "currently logged-in account."
+                )
+
+            else:
+
+                execute(
+                    """
+                    DELETE FROM users
+                    WHERE id=?
+                    """,
+                    (
+                        selected_user["id"],
+                    ),
+                )
+
+                st.success(
+                    "LMS account deleted."
+                )
+
+                st.rerun()
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # QUICK ACCOUNT CONTROL
+    # --------------------------------------------------------
+
+    st.subheader(
+        "⚡ Quick Account Control"
+    )
+
+    quick1, quick2, quick3 = st.columns(3)
+
+    with quick1:
+
+        if st.button(
+            "🟢 Activate Account",
+            use_container_width=True,
+        ):
+
+            execute(
+                """
+                UPDATE users
+                SET status='Active'
+                WHERE id=?
+                """,
+                (
+                    selected_user["id"],
+                ),
+            )
+
+            st.success(
+                "Account activated."
+            )
+
+            st.rerun()
+
+    with quick2:
+
+        if st.button(
+            "🔴 Deactivate Account",
+            use_container_width=True,
+        ):
+
+            if (
+                selected_user["id"]
+                == st.session_state.user_id
+            ):
+
+                st.error(
+                    "You cannot deactivate yourself."
+                )
+
+            else:
+
+                execute(
+                    """
+                    UPDATE users
+                    SET status='Inactive'
+                    WHERE id=?
+                    """,
+                    (
+                        selected_user["id"],
+                    ),
+                )
+
+                st.success(
+                    "Account deactivated."
+                )
+
+                st.rerun()
+
+    with quick3:
+
+        if st.button(
+            "🔄 Generate Password",
+            use_container_width=True,
+        ):
+
+            new_password = generate_password(
+                12
+            )
+
+            execute(
+                """
+                UPDATE users
+                SET password=?
+                WHERE id=?
+                """,
+                (
+                    hash_password(
+                        new_password
+                    ),
+                    selected_user["id"],
+                ),
+            )
+
+            st.success(
+                "New password generated."
+            )
+
+            st.code(
+                f"User ID: "
+                f"{selected_user['username']}\n"
+                f"Password: "
+                f"{new_password}",
+                language="text",
             )
 
 
@@ -1824,7 +3264,9 @@ def reports():
 
 def all_agents():
 
-    st.title("🤖 PADHO PAKISTAN — 50 AI AGENTS")
+    st.title(
+        "🤖 PADHO PAKISTAN — 50 AI AGENTS"
+    )
 
     st.write(
         "All specialized agents are controlled by "
@@ -1879,6 +3321,7 @@ def all_agents():
             response = ai_response(
                 f"""
 You are the specialized agent:
+
 {st.session_state.selected_agent}
 
 You operate under Mohammad Ahmad,
@@ -1897,7 +3340,9 @@ Task:
                 st.session_state.selected_agent,
             )
 
-            st.markdown(response)
+            st.markdown(
+                response
+            )
 
 
 # ============================================================
@@ -1906,7 +3351,12 @@ Task:
 
 def agent_management():
 
-    st.title("⚙️ Agent Management")
+    if not admin_only():
+        return
+
+    st.title(
+        "⚙️ Agent Management"
+    )
 
     data = []
 
@@ -1923,6 +3373,7 @@ def agent_management():
         )
 
     if pd:
+
         st.dataframe(
             pd.DataFrame(data),
             use_container_width=True,
@@ -1936,7 +3387,12 @@ def agent_management():
 
 def agent_logs():
 
-    st.title("📜 Agent Activity Logs")
+    if not admin_only():
+        return
+
+    st.title(
+        "📜 Agent Activity Logs"
+    )
 
     rows = execute(
         """
@@ -1949,7 +3405,11 @@ def agent_logs():
     )
 
     if not rows:
-        st.info("No agent activity yet.")
+
+        st.info(
+            "No agent activity yet."
+        )
+
         return
 
     if pd:
@@ -1968,13 +3428,28 @@ def agent_logs():
 
 def users_page():
 
-    st.title("👥 User Management")
+    if not admin_only():
+        return
+
+    st.title(
+        "👥 User Management"
+    )
 
     rows = execute(
         """
-        SELECT id,username,name,role,email,
-               department,semester,created_at
+        SELECT
+            id,
+            username,
+            name,
+            role,
+            email,
+            department,
+            semester,
+            status,
+            created_at,
+            last_login
         FROM users
+        ORDER BY id DESC
         """,
         fetch=True,
     )
@@ -1988,79 +3463,10 @@ def users_page():
             use_container_width=True,
         )
 
-    st.divider()
-
-    st.subheader(
-        "Create User"
+    st.info(
+        "For complete account allocation and password "
+        "management, use the 👑 Admin Panel."
     )
-
-    with st.form("create_user"):
-
-        username = st.text_input(
-            "Username"
-        )
-
-        name = st.text_input(
-            "Full Name"
-        )
-
-        password = st.text_input(
-            "Password",
-            type="password",
-        )
-
-        role = st.selectbox(
-            "Role",
-            [
-                "Student",
-                "Teacher",
-                "Admin",
-            ],
-        )
-
-        email = st.text_input(
-            "Email"
-        )
-
-        department = st.text_input(
-            "Department"
-        )
-
-        create = st.form_submit_button(
-            "Create User"
-        )
-
-        if create:
-
-            try:
-
-                execute(
-                    """
-                    INSERT INTO users
-                    (username,password,name,role,email,
-                     department,created_at)
-                    VALUES (?,?,?,?,?,?,?)
-                    """,
-                    (
-                        username,
-                        hash_password(password),
-                        name,
-                        role,
-                        email,
-                        department,
-                        datetime.now().isoformat(),
-                    ),
-                )
-
-                st.success(
-                    "User created."
-                )
-
-            except Exception as e:
-
-                st.error(
-                    f"Unable to create user: {e}"
-                )
 
 
 # ============================================================
@@ -2069,7 +3475,20 @@ def users_page():
 
 def course_management():
 
-    st.title("📚 Course Management")
+    if st.session_state.role not in [
+        "Admin",
+        "Teacher",
+    ]:
+
+        st.error(
+            "Access denied."
+        )
+
+        return
+
+    st.title(
+        "📚 Course Management"
+    )
 
     rows = execute(
         "SELECT * FROM courses",
@@ -2087,7 +3506,9 @@ def course_management():
 
     st.divider()
 
-    with st.form("course_form"):
+    with st.form(
+        "course_form"
+    ):
 
         code = st.text_input(
             "Course Code"
@@ -2125,8 +3546,14 @@ def course_management():
             execute(
                 """
                 INSERT INTO courses
-                (code,name,department,credit_hours,
-                 teacher,description)
+                (
+                    code,
+                    name,
+                    department,
+                    credit_hours,
+                    teacher,
+                    description
+                )
                 VALUES (?,?,?,?,?,?)
                 """,
                 (
@@ -2145,12 +3572,17 @@ def course_management():
 
 
 # ============================================================
-# DATABASE PAGE
+# DATABASE
 # ============================================================
 
 def database_page():
 
-    st.title("💾 Database")
+    if not admin_only():
+        return
+
+    st.title(
+        "💾 Database Administration"
+    )
 
     st.write(
         f"Database: `{DB_PATH}`"
@@ -2174,7 +3606,10 @@ def database_page():
     for table in tables:
 
         count = execute(
-            f"SELECT COUNT(*) AS c FROM {table}",
+            f"""
+            SELECT COUNT(*) AS c
+            FROM {table}
+            """,
             fetch=True,
         )[0]["c"]
 
@@ -2189,21 +3624,23 @@ def database_page():
 
 def settings_page():
 
-    st.title("⚙️ PADHO PAKISTAN Settings")
+    st.title(
+        "⚙️ PADHO PAKISTAN Settings"
+    )
 
     st.subheader(
         "🔐 OpenAI API Configuration"
     )
 
     st.info(
-        "The API key is read only from Streamlit Secrets. "
-        "It is not displayed or entered here."
+        "The API key is read from Streamlit Secrets "
+        "and is never displayed."
     )
 
     if get_api_key():
 
         st.success(
-            "🟢 OPENAI_API_KEY detected in Streamlit Secrets."
+            "🟢 OPENAI_API_KEY detected."
         )
 
     else:
@@ -2260,7 +3697,9 @@ def settings_page():
             prompt or "Introduce yourself."
         )
 
-        st.write(response)
+        st.write(
+            response
+        )
 
 
 # ============================================================
@@ -2270,6 +3709,7 @@ def settings_page():
 def logout():
 
     st.session_state.clear()
+
     st.rerun()
 
 
@@ -2284,6 +3724,7 @@ def main():
     if not st.session_state.logged_in:
 
         login()
+
         return
 
     sidebar()
@@ -2291,90 +3732,123 @@ def main():
     page = st.session_state.page
 
     if page == "Dashboard":
+
         dashboard()
 
     elif page == "🤖 Mohammad Ahmad":
+
         mohammad_ahmad()
 
     elif page == "Assignments":
+
         assignments()
 
     elif page == "Submit Assignment":
+
         submit_assignment()
 
     elif page == "Quizzes":
+
         quizzes()
 
     elif page == "Attendance":
+
         attendance()
 
     elif page == "Results":
+
         results()
 
     elif page == "Study Materials":
+
         study_materials()
 
     elif page == "Notifications":
+
         notifications()
 
     elif page == "AI Tutor":
+
         ai_tutor()
 
     elif page == "Manage Assignments":
+
         manage_assignments()
 
     elif page == "Manage Quizzes":
+
         manage_quizzes()
 
     elif page == "Manage Attendance":
+
         attendance()
 
     elif page == "Students":
+
         users_page()
 
     elif page == "Course Management":
+
         course_management()
 
     elif page == "AI Lesson Planner":
+
         lesson_planner()
 
     elif page == "Reports":
+
         reports()
 
+    elif page == "👑 Admin Panel":
+
+        admin_panel()
+
     elif page == "Users":
+
         users_page()
 
     elif page == "Courses":
+
         course_management()
 
     elif page == "All Assignments":
+
         assignments()
 
     elif page == "All Results":
+
         results()
 
     elif page == "Agent Management":
+
         agent_management()
 
     elif page == "Agent Logs":
+
         agent_logs()
 
     elif page == "System Settings":
+
         settings_page()
 
     elif page == "Database":
+
         database_page()
 
     elif page == "All 50 Agents":
+
         all_agents()
 
     elif page == "Settings":
+
         settings_page()
 
     elif page == "Logout":
+
         logout()
 
     else:
+
         dashboard()
 
     st.divider()
@@ -2382,12 +3856,13 @@ def main():
     st.caption(
         "🇵🇰 PADHO PAKISTAN | "
         "Main AI Agent: Mohammad Ahmad | "
+        "50 Specialized Agents | "
         "Developed by Engr. Bilal Mehmood"
     )
 
 
 # ============================================================
-# RUN
+# RUN APPLICATION
 # ============================================================
 
 if __name__ == "__main__":
